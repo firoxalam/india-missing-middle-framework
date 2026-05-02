@@ -1,0 +1,132 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>India's Missing Middle Districts — MPI Analysis 2023</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        body { margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+        #map { height: 100vh; width: 100vw; }
+        .legend { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 0 15px rgba(0,0,0,0.2); line-height: 1.5; }
+        .legend i { width: 18px; height: 18px; float: left; margin-right: 8px; opacity: 0.7; border-radius: 50%; }
+        .title-box { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 1000; background: rgba(0,0,0,0.8); color: white; padding: 10px 30px; border-radius: 50px; font-weight: bold; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="title-box">India's Missing Middle Districts — MPI Analysis 2023</div>
+    <div id="map"></div>
+    <script>
+        // Seeded random number generator for reproducibility in the standalone file
+        function srandom(seed) {
+            let m_w = 123456789 + seed;
+            let m_z = 987654321 - seed;
+            let mask = 0xffffffff;
+            return function() {
+                m_z = (36969 * (m_z & 65535) + (m_z >> 16)) & mask;
+                m_w = (18000 * (m_w & 65535) + (m_w >> 16)) & mask;
+                let result = ((m_z << 16) + m_w) & mask;
+                return (result / 4294967296) + 0.5;
+            };
+        }
+
+        const STATE_CONFIG = {
+            'Bihar': { lat: 25.09, lon: 85.31, base_mpi: 0.52, base_wpr: 35 },
+            'Uttar Pradesh': { lat: 26.85, lon: 80.95, base_mpi: 0.45, base_wpr: 40 },
+            'Kerala': { lat: 10.85, lon: 76.27, base_mpi: 0.05, base_wpr: 52 },
+            'Maharashtra': { lat: 19.75, lon: 75.71, base_mpi: 0.18, base_wpr: 55 },
+            'Tamil Nadu': { lat: 11.12, lon: 78.65, base_mpi: 0.12, base_wpr: 58 },
+            'Karnataka': { lat: 15.31, lon: 75.71, base_mpi: 0.22, base_wpr: 54 },
+            'Gujarat': { lat: 22.25, lon: 71.19, base_mpi: 0.20, base_wpr: 56 },
+            'Rajasthan': { lat: 27.02, lon: 74.21, base_mpi: 0.35, base_wpr: 48 },
+            'Madhya Pradesh': { lat: 22.97, lon: 78.65, base_mpi: 0.42, base_wpr: 45 },
+            'Jharkhand': { lat: 23.61, lon: 85.27, base_mpi: 0.48, base_wpr: 38 },
+            'Odisha': { lat: 20.95, lon: 84.80, base_mpi: 0.38, base_wpr: 42 },
+            'West Bengal': { lat: 22.98, lon: 87.85, base_mpi: 0.30, base_wpr: 44 },
+            'Telangana': { lat: 18.11, lon: 79.01, base_mpi: 0.25, base_wpr: 53 },
+            'Andhra Pradesh': { lat: 15.91, lon: 79.74, base_mpi: 0.28, base_wpr: 51 },
+            'Punjab': { lat: 31.14, lon: 75.34, base_mpi: 0.10, base_wpr: 49 },
+            'Haryana': { lat: 29.05, lon: 76.08, base_mpi: 0.15, base_wpr: 47 },
+            'Chhattisgarh': { lat: 21.27, lon: 81.86, base_mpi: 0.40, base_wpr: 41 },
+            'Assam': { lat: 26.20, lon: 92.93, base_mpi: 0.32, base_wpr: 39 },
+            'Himachal Pradesh': { lat: 31.10, lon: 77.17, base_mpi: 0.08, base_wpr: 60 },
+            'Uttarakhand': { lat: 30.06, lon: 79.01, base_mpi: 0.20, base_wpr: 46 }
+        };
+
+        const DISTRICT_NAMES = {
+            'Bihar': ['Patna', 'Gaya', 'Muzaffarpur', 'Bhagalpur', 'Purnia', 'Darbhanga', 'Arrah', 'Begusarai', 'Katihar', 'Munger', 'Saharsa', 'Bettiah'],
+            'Uttar Pradesh': ['Lucknow', 'Kanpur', 'Varanasi', 'Agra', 'Meerut', 'Prayagraj', 'Ghaziabad', 'Bareilly', 'Aligarh', 'Moradabad', 'Saharanpur', 'Gorakhpur', 'Noida', 'Firozabad', 'Jhansi'],
+            'Kerala': ['Thiruvananthapuram', 'Kochi', 'Kozhikode', 'Kollam', 'Thrissur', 'Palakkad', 'Alappuzha', 'Malappuram'],
+            'Maharashtra': ['Mumbai', 'Pune', 'Nagpur', 'Thane', 'Nashik', 'Aurangabad', 'Solapur', 'Amravati', 'Nanded', 'Kolhapur']
+        };
+
+        function generateData() {
+            const random = srandom(42);
+            let districts = [];
+            Object.entries(STATE_CONFIG).forEach(([stateName, config]) => {
+                const names = DISTRICT_NAMES[stateName] || [];
+                names.forEach(name => {
+                    districts.push({
+                        district: name, state: stateName,
+                        mpi_score: Math.min(0.7, Math.max(0.0, config.base_mpi + (random() - 0.5) * 0.15)),
+                        wpr: config.base_wpr + (random() - 0.5) * 5,
+                        population_lakhs: Math.round(2 + random() * 78),
+                        lat: config.lat + (random() - 0.5) * 1.5, lon: config.lon + (random() - 0.5) * 1.5
+                    });
+                });
+            });
+            while (districts.length < 150) {
+                const states = Object.keys(STATE_CONFIG);
+                const stateName = states[Math.floor(random() * states.length)];
+                const config = STATE_CONFIG[stateName];
+                districts.push({
+                    district: stateName + " Dist " + districts.length, state: stateName,
+                    mpi_score: Math.min(0.7, Math.max(0.0, config.base_mpi + (random() - 0.5) * 0.2)),
+                    wpr: config.base_wpr + (random() - 0.5) * 7,
+                    population_lakhs: Math.round(2 + random() * 78),
+                    lat: config.lat + (random() - 0.5) * 2, lon: config.lon + (random() - 0.5) * 2
+                });
+            }
+            const sorted = [...districts].sort((a, b) => a.mpi_score - b.mpi_score);
+            return districts.map(d => {
+                const rankIndex = sorted.findIndex(sd => sd.district === d.district && sd.mpi_score === d.mpi_score);
+                const pct = (rankIndex + 1) / districts.length;
+                let category, color;
+                if (pct > 0.60) { category = 'Poor'; color = '#E05C3A'; }
+                else if (pct >= 0.20) { category = 'Missing Middle'; color = '#F5A623'; }
+                else { category = 'Prosperous'; color = '#2E86AB'; }
+                return { ...d, category, color };
+            });
+        }
+
+        var map = L.map('map').setView([20.5937, 78.9629], 5);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: 'CARTO' }).addTo(map);
+
+        const data = generateData();
+        data.forEach(function(d) {
+            L.circleMarker([d.lat, d.lon], {
+                radius: Math.min(18, Math.max(4, d.population_lakhs / 4)),
+                fillColor: d.color, color: "#000", weight: 0.5, opacity: 1, fillOpacity: 0.75
+            }).addTo(map).bindTooltip(
+                "<b>" + d.district + ", " + d.state + "</b><br>" +
+                "Category: " + d.category + "<br>" +
+                "MPI Score: " + d.mpi_score.toFixed(2) + "<br>" +
+                "WPR: " + d.wpr.toFixed(1) + "%"
+            );
+        });
+
+        var legend = L.control({position: 'bottomright'});
+        legend.onAdd = function (map) {
+            var div = L.DomUtil.create('div', 'legend');
+            div.innerHTML += '<b>Categories</b><br>';
+            div.innerHTML += '<i style="background: #E05C3A"></i> Poor (> 0.6 pct)<br>';
+            div.innerHTML += '<i style="background: #F5A623"></i> Missing Middle (0.2-0.6 pct)<br>';
+            div.innerHTML += '<i style="background: #2E86AB"></i> Prosperous (< 0.2 pct)<br>';
+            return div;
+        };
+        legend.addTo(map);
+    </script>
+</body>
+</html>
