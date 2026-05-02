@@ -51,20 +51,55 @@ export default function App() {
     } = useProcessedData();
 
     const [activeView, setActiveView] = useState<ViewMode>('overview');
+    const [activeCategory, setActiveCategory] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [customDistricts, setCustomDistricts] = useState<District[]>([]);
     const [selectedDistrict, setSelectedDistrict] = useState<District | null>(null);
+    const [simYear, setSimYear] = useState(2025);
+    const [comparativeDistricts, setComparativeDistricts] = useState<District[]>([]);
+    const [mapMetric, setMapMetric] = useState<'mpi' | 'wpr' | 'resilience'>('mpi');
 
     // Merge and re-process data if needed
-    const all = useMemo(() => [...initialAll, ...customDistricts], [initialAll, customDistricts]);
+    const all = useMemo(() => {
+        const base = [...initialAll, ...customDistricts];
+        if (simYear === 2025) return base;
+
+        // Apply Projection logic
+        const yearsDiff = simYear - 2025;
+        return base.map(d => {
+            const improvementRate = (d.resilience_index / 10) * 0.04; // Districts with higher RI improve faster
+            const projectedMpi = Math.max(0.01, d.mpi_score * Math.pow(1 - improvementRate, yearsDiff));
+            const projectedWpr = Math.min(85, d.wpr * Math.pow(1 + (improvementRate / 2), yearsDiff));
+            
+            // Re-categorize based on projected MPI
+            let projectedCat = d.category;
+            if (projectedMpi < 0.15) projectedCat = 'Prosperous';
+            else if (projectedMpi < 0.3) projectedCat = 'Missing Middle';
+            else projectedCat = 'Poor';
+
+            return {
+                ...d,
+                mpi_score: projectedMpi,
+                wpr: projectedWpr,
+                category: projectedCat,
+                color: CATEGORY_COLORS[projectedCat]
+            };
+        });
+    }, [initialAll, customDistricts, simYear]);
 
     const filteredDistricts = useMemo(() => {
-        if (!searchTerm) return all;
-        return all.filter(d => 
-            d.district.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            d.state.toLowerCase().includes(searchTerm.toLowerCase())
-        );
-    }, [all, searchTerm]);
+        let docs = all;
+        if (searchTerm) {
+            docs = docs.filter(d => 
+                d.district.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                d.state.toLowerCase().includes(searchTerm.toLowerCase())
+            );
+        }
+        if (activeCategory) {
+            docs = docs.filter(d => d.category === activeCategory);
+        }
+        return docs;
+    }, [all, searchTerm, activeCategory]);
 
     const states = useMemo(() => Array.from(new Set(filteredDistricts.map(d => d.state))), [filteredDistricts]);
 
@@ -115,43 +150,36 @@ export default function App() {
     const mmStats = summary.find(s => s.category === 'Missing Middle')!;
 
     const researchNote = `
-# The Strategic Inertia of the Missing Middle: A Pan-India Sub-National Analysis
-**Author:** Firoz Alam, 2nd year BA Double Major Economics and Political Science student at MAHE
-**Classification:** Strategic Policy Framework | Confidential Analysis
-**Date:** May 2025
+# The "Middle Trap" in India's Growth Path
+## A Sub-National Perspective on Economic Inertia
 
-### 1. Executive Summary: The Structural Bottleneck
-The "Missing Middle" districts of India represent a precarious developmental equilibrium. This analysis, spanning ${all.length} districts, identifies a persistent structural bottleneck where regions exit absolute poverty but fail to transition into high-productivity industrial or service clusters. These ${all.filter(d => d.category === 'Missing Middle').length} districts are neither beneficiaries of the 'Pro-Poor' social safety nets nor the 'Agglomeration Economies' of Tier-1 urban centers, resulting in a systemic stagnation we term the "Middle Trap."
+**By:** Firoz Alam  
+*BA (Double Major) Economics and Political Science, Manipal Academy of Higher Education (MAHE)*
 
-### 2. The Resilience Index (RI) 2.0
-Our proprietary **Resilience Index** has been updated to include high-frequency data across four pillars:
-*   **DPI Integration:** Density of Aadhaar-enabled payments and OCEN (Open Credit Enablement Network) utilization in MSMEs.
-*   **Labor Market Elasticity:** The Worker Participation Rate (WPR) adjusted for formalization and skill-mix diversity.
-*   **Gati Shakti Synchronization:** Proximity to National Infrastructure Pipeline (NIP) nodes and multimodal logistics efficiency.
-*   **Environmental Resilience:** Vulnerability to climate-induced agricultural shocks and urbanization heat-island impacts.
+---
 
-We find a significant "Resilience Gap": Missing Middle districts average an RI of **4.4/10**, failing to cross the **6.5/10** threshold required for attracting sustained private capital.
+### I. The Core Puzzle
+While much of India's policy focus is divided between high-growth urban hubs and rural poverty alleviation, there exists a "Missing Middle." These are the ${all.filter(d => d.category === 'Missing Middle').length} districts that have successfully escaped extreme poverty but are struggling to transition into high-productivity economies. As an undergraduate student of economics and politics, I believe this segment represents the most significant structural challenge to India's long-term prosperity.
 
-### 3. Regional Divergence and The Bihar Case Study
-While the Southern Peninsula and Western Corridor have successfully migrated their middle districts into high-value electronics and chemical value chains, the "Hinterland Middle" (Bihar, UP, Jharkhand) remains trapped in low-surplus agrarian cycles.
-*   **The Bihar Paradox:** Districts like ${biharData.filter(d => d.category === 'Missing Middle').slice(0, 3).map(d => d.district).join(', ')} exhibit robust labor participation but stagnate due to "Infrastructure Deficits."
-*   **Capital Displacement:** Our model shows that for every 1% increase in prosperity in a Tier-1 hub, there is a corresponding 0.4% capital flight from surrounding Missing Middle districts, exacerbating regional inequality.
+### II. The Resilience Gap
+Our analysis uses a **Resilience Index (RI)** to measure how well a district can sustain growth. We look at:
+*   **Infrastructure:** Not just roads, but the reliability of the power grid.
+*   **Digital Access:** The shift from cash to UPI and digital commerce in small businesses.
+*   **Labor Strength:** The diversification of skills beyond agriculture.
 
-### 4. Policy Recommendations: The 2030 Structural Transformation Framework
+The data reveals a stark "Resilience Gap." While successful hubs score high, these middle districts are stuck at an average of **4.4/10**. This prevents them from attracting the private investment needed to grow further.
 
-1.  **DPI-Enabled Regional Value Chains (RVC):**
-    - **Implementation:** Deployment of the **Open Network for Digital Commerce (ONDC)** to bypass traditional middlemen in 'Missing Middle' agricultural and handicraft clusters, enabling direct access to global markets.
-    - **Objective:** Move beyond isolated ODOP (One District One Product) initiatives to integrated "Specialized Economic Corridors."
+### III. Regional Disparities: A Closer Look
+The problem is not uniform across India. Coastal and Western states have managed to pull their middle districts into manufacturing value chains. In contrast, districts in the hinterland, such as ${biharData.filter(d => d.category === 'Missing Middle').slice(0, 3).map(d => d.district).join(', ')} in Bihar, show high labor activity but are held back by severe infrastructure deficits. This is what we call "Disguised Prosperity"—people are working hard, but the economic environment doesn't allow for value creation.
 
-2.  **Tier-II Resilience Bonds & Sovereign Backing:**
-    - **Mechanism:** Issuance of **Sub-National Resilience Bonds** specifically for districts with an RI below 5.0. These bonds would be backed by a first-loss guarantee from the **National Investment and Infrastructure Fund (NIIF)**.
-    - **Target:** Financing 24/7 industrial-grade power and cold-storage grids in currently "resilience-deficient" nodes.
+### IV. Moving Forward: A Simple Framework
+To bridge this gap, three key shifts are required:
+1.  **Digital Integration:** Using platforms like ONDC to help local artisans and farmers reach global markets without middlemen.
+2.  **Targeted Infrastructure:** Creating "Resilience Bonds" to specifically fund power and logistics in these middle-tier nodes.
+3.  **Data-Driven Policy:** Moving away from "one-size-fits-all" budgeting toward algorithmic allocation that responds to real-time changes in a district's economic health.
 
-3.  **Predictive Welfare & Economic Steering (PWES):**
-    - **Mechanism:** Transitioning from static DBT (Direct Benefit Transfer) to **Algorithmic Asset Allocation**. Using the **MPI_Core** dashboard to front-load capital investments in districts showing early signs of "Resilience Decay" before a full economic collapse occurs.
-
-### 5. Strategic Conclusion
-The "Middle Trap" is the single greatest threat to India's $5 Trillion ambition. Ignoring these ${all.filter(d => d.category === 'Missing Middle').length} districts is a strategic risk that could lead to "Island Development"—where a few prosperous hubs are surrounded by a sea of underperforming regions. The transition from 'Survival' to 'Surplus' requires more than just capital; it requires a geospatial-first policy architecture.
+### V. Conclusion
+The path to a \$5 Trillion economy is not paved only by the mega-cities. It requires us to unlock the potential of the ${all.filter(d => d.category === 'Missing Middle').length} districts currently stuck in the middle. By combining geospatial data with political-economic insight, we can ensure that India's growth is truly inclusive and resilient.
 `;
 
     return (
@@ -168,9 +196,9 @@ The "Middle Trap" is the single greatest threat to India's $5 Trillion ambition.
                             <span className="text-[9px] uppercase tracking-[0.2em] font-medium text-white/40 mt-1.5 block">Economic Suite</span>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2.5 px-1">
-                        <div className="w-2 h-2 rounded-full bg-emerald-500/80" />
-                        <p className="text-[9px] uppercase tracking-[0.2em] font-bold text-white/30">System Status: Active</p>
+                    <div className="flex items-center gap-2 px-1">
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/60" />
+                        <p className="text-[9px] uppercase tracking-wider font-bold text-white/20">Active Analysis</p>
                     </div>
                 </div>
 
@@ -219,6 +247,30 @@ The "Middle Trap" is the single greatest threat to India's $5 Trillion ambition.
                 </nav>
 
                 <div className="p-6 bg-white/[0.01] border-t border-white/5 mt-auto">
+                    <div className="mb-4 px-2">
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="text-[9px] font-bold text-white/20 uppercase tracking-widest">Compare Queue</span>
+                            <span className="text-[9px] font-bold text-gold">{comparativeDistricts.length}/3</span>
+                        </div>
+                        <div className="flex gap-2">
+                            {comparativeDistricts.map(d => (
+                                <div key={d.district} className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center text-[10px] font-bold border border-white/10 group relative">
+                                    {d.district.substring(0, 2)}
+                                    <button 
+                                        onClick={() => setComparativeDistricts(prev => prev.filter(p => p.district !== d.district))}
+                                        className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                    >
+                                        <X size={8} />
+                                    </button>
+                                </div>
+                            ))}
+                            {comparativeDistricts.length === 0 && (
+                                <div className="flex-1 h-8 rounded-lg border border-dashed border-white/10 flex items-center justify-center">
+                                    <span className="text-[8px] font-bold text-white/10 uppercase tracking-widest leading-none">Add districts</span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
                     <div className="flex items-center gap-4 p-3.5 rounded-xl bg-white/[0.03] border border-white/5 hover:bg-white/[0.05] transition-all cursor-pointer group">
                         <div className="relative">
                             <div className="w-10 h-10 rounded-lg bg-white/[0.05] flex items-center justify-center text-[11px] font-bold border border-white/10 text-white/60">FA</div>
@@ -269,8 +321,12 @@ The "Middle Trap" is the single greatest threat to India's $5 Trillion ambition.
                                 </div>
                             )}
                         </div>
-                        <button className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-                            <Download size={18} className="text-gray-500" />
+                        <button 
+                            onClick={() => window.print()}
+                            className="p-2 hover:bg-gold hover:text-white rounded-full transition-all group relative"
+                        >
+                            <Download size={18} className="text-gray-500 group-hover:text-white" />
+                            <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 bg-navy text-white text-[8px] font-bold rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">Generate Briefing</span>
                         </button>
                         <button className="p-2 hover:bg-gray-100 rounded-full transition-colors">
                             <Share2 size={18} className="text-gray-500" />
@@ -296,6 +352,8 @@ The "Middle Trap" is the single greatest threat to India's $5 Trillion ambition.
                                         subValue="Verified Dataset" 
                                         icon={<Database size={24} />} 
                                         delay={0.1}
+                                        active={activeCategory === null}
+                                        onClick={() => setActiveCategory(null)}
                                     />
                                     <StatCard 
                                         label="Missing Middle" 
@@ -304,22 +362,76 @@ The "Middle Trap" is the single greatest threat to India's $5 Trillion ambition.
                                         color="text-gold"
                                         icon={<Activity size={24} />} 
                                         delay={0.2}
+                                        active={activeCategory === 'Missing Middle'}
+                                        onClick={() => setActiveCategory(activeCategory === 'Missing Middle' ? null : 'Missing Middle')}
                                     />
                                     <StatCard 
-                                        label="Market Resilience" 
-                                        value={(all.filter(d => d.category === 'Missing Middle').reduce((a, b) => a + b.resilience_index, 0) / (mmStats.count || 1)).toFixed(2)} 
-                                        subValue="Internal Benchmarking" 
-                                        icon={<TrendingUp size={24} />} 
+                                        label="Chronic Deprivation" 
+                                        value={all.filter(d => d.category === 'Poor').length} 
+                                        subValue="High Priority" 
+                                        color="text-red-500"
+                                        icon={<Filter size={24} />} 
                                         delay={0.3}
+                                        active={activeCategory === 'Poor'}
+                                        onClick={() => setActiveCategory(activeCategory === 'Poor' ? null : 'Poor')}
                                     />
                                     <StatCard 
-                                        label="Systemic Coverage" 
-                                        value={chart3Data.length} 
-                                        subValue="Across 20+ States" 
-                                        icon={<Info size={24} />} 
+                                        label="Prosperous Hubs" 
+                                        value={all.filter(d => d.category === 'Prosperous').length} 
+                                        subValue="Growth Leaders" 
+                                        color="text-blue-500"
+                                        icon={<Users size={24} />} 
                                         delay={0.4}
+                                        active={activeCategory === 'Prosperous'}
+                                        onClick={() => setActiveCategory(activeCategory === 'Prosperous' ? null : 'Prosperous')}
                                     />
                                 </div>
+
+                                {/* Comparison Engine Dashboard */}
+                                {comparativeDistricts.length > 1 && (
+                                    <motion.div 
+                                       initial={{ opacity: 0, y: 30 }}
+                                       animate={{ opacity: 1, y: 0 }}
+                                       className="bg-navy rounded-[32px] p-10 mb-12 text-white border border-white/10 shadow-[0_40px_100px_-20px_rgba(15,23,42,0.4)]"
+                                    >
+                                        <div className="flex items-center justify-between mb-10">
+                                            <div className="flex items-center gap-6 text-left">
+                                                <div className="w-12 h-12 rounded-xl bg-gold flex items-center justify-center text-navy shadow-lg">
+                                                    <Activity size={24} />
+                                                </div>
+                                                <div>
+                                                    <p className="text-[10px] font-black uppercase text-gold tracking-[0.4em] mb-1">Analytical Intelligence</p>
+                                                    <h3 className="font-serif italic text-3xl">Side-by-Side Benchmarking</h3>
+                                                </div>
+                                            </div>
+                                            <button 
+                                               onClick={() => setComparativeDistricts([])}
+                                               className="px-6 py-2.5 bg-white/10 hover:bg-red-500 hover:text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-white/5"
+                                            >
+                                                Clear analysis
+                                            </button>
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                                            {comparativeDistricts.map(d => (
+                                                <div key={`comp-${d.district}`} className="bg-white/[0.03] rounded-3xl p-8 border border-white/5 hover:border-gold/30 transition-all group relative overflow-hidden text-left">
+                                                    <div className="absolute top-0 right-0 w-16 h-16 bg-gold/5 -rotate-12 translate-x-8 -translate-y-8" />
+                                                    <div className="flex items-center justify-between mb-8 relative z-10 text-left">
+                                                        <div>
+                                                            <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest leading-none mb-2">{d.state}</p>
+                                                            <h4 className="text-2xl font-display font-black text-white group-hover:text-gold transition-colors">{d.district}</h4>
+                                                        </div>
+                                                        <div className={`w-3 h-3 rounded-full ${d.category === 'Prosperous' ? 'bg-blue-500' : d.category === 'Poor' ? 'bg-red-500' : 'bg-gold'}`} />
+                                                    </div>
+                                                    <div className="space-y-6 relative z-10">
+                                                        <MetricRow label="Deprivation Depth" value={d.mpi_score.toFixed(3)} pct={(1 - d.mpi_score) * 100} />
+                                                        <MetricRow label="Labor Force %" value={`${d.wpr.toFixed(1)}%`} pct={d.wpr} color="bg-gold" />
+                                                        <MetricRow label="Resilience Index" value={`${(d.resilience_index * 10).toFixed(1)}/10`} pct={d.resilience_index * 10} color="bg-emerald-500" />
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </motion.div>
+                                )}
 
                                 {/* Main Analysis Section */}
                                 <div className="bg-surface rounded-[32px] border border-navy/[0.04] p-10 shadow-[0_20px_60px_rgba(0,0,0,0.02)] relative overflow-hidden">
@@ -343,8 +455,8 @@ The "Middle Trap" is the single greatest threat to India's $5 Trillion ambition.
                                         <div className="lg:col-span-2 space-y-10">
                                             <div className="flex items-center justify-between px-2">
                                                 <div className="flex items-center gap-4">
-                                                    <div className="w-3 h-3 rounded-full bg-gold animate-pulse" />
-                                                    <span className="text-[10px] font-black uppercase tracking-[0.4em] text-navy/40">Geospatial Intelligence Map</span>
+                                                    <div className="w-2 h-2 rounded-full bg-gold/40" />
+                                                    <span className="text-[10px] font-bold uppercase tracking-widest text-navy/30">Geospatial Intelligence Map</span>
                                                 </div>
                                                 <div className="flex gap-4">
                                                     <LegendItem color={CATEGORY_COLORS['Poor']} label="Chronic Deprivation" />
@@ -353,17 +465,50 @@ The "Middle Trap" is the single greatest threat to India's $5 Trillion ambition.
                                                 </div>
                                             </div>
                                             <div className="h-[600px] rounded-[32px] overflow-hidden border border-navy/[0.04] shadow-[0_40px_100px_-20px_rgba(15,23,42,0.08)] group relative">
-                                                {/* Map Search Overlay */}
-                                                <div className="absolute top-6 left-6 z-[1001] flex flex-col gap-2">
+                                                {/* Interactive Overlays */}
+                                                <div className="absolute top-6 left-6 z-[1001] flex flex-col gap-4">
                                                     <div className="relative group/search">
                                                         <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-navy/40 group-focus-within/search:text-gold transition-colors" />
                                                         <input 
                                                             type="text"
-                                                            placeholder="Quick Search District..."
+                                                            placeholder="Spotlight Search..."
                                                             className="pl-10 pr-4 py-3 bg-white/90 backdrop-blur-md border border-white/20 rounded-2xl text-[10px] font-black uppercase tracking-widest text-navy outline-none shadow-2xl focus:w-64 w-48 transition-all"
                                                             onChange={(e) => setSearchTerm(e.target.value)}
                                                             value={searchTerm}
                                                         />
+                                                    </div>
+                                                    <div className="bg-white/90 backdrop-blur-md p-1.5 rounded-2xl border border-white/20 shadow-2xl flex gap-1">
+                                                        {(['mpi', 'wpr', 'resilience'] as const).map(m => (
+                                                            <button 
+                                                                key={m}
+                                                                onClick={() => setMapMetric(m)}
+                                                                className={`px-4 py-2 rounded-xl text-[8px] font-black uppercase tracking-widest transition-all ${
+                                                                    mapMetric === m ? 'bg-navy text-white' : 'text-navy/40 hover:bg-navy/5'
+                                                                }`}
+                                                            >
+                                                                 {m}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+
+                                                <div className="absolute top-6 right-6 z-[1001] bg-navy/90 backdrop-blur-md p-6 rounded-3xl border border-white/10 shadow-2xl text-white w-64">
+                                                    <div className="flex items-center justify-between mb-4">
+                                                        <span className="text-[10px] font-black uppercase tracking-[0.3em] text-gold">Forecast Cycle</span>
+                                                        <span className="text-xl font-display font-black">FY {simYear}</span>
+                                                    </div>
+                                                    <input 
+                                                        type="range"
+                                                        min="2025"
+                                                        max="2030"
+                                                        step="1"
+                                                        value={simYear}
+                                                        onChange={(e) => setSimYear(parseInt(e.target.value))}
+                                                        className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-gold mb-4"
+                                                    />
+                                                    <div className="flex justify-between text-[8px] font-bold text-white/40 uppercase tracking-widest">
+                                                        <span>Current</span>
+                                                        <span>2030 Vision</span>
                                                     </div>
                                                 </div>
 
@@ -376,26 +521,30 @@ The "Middle Trap" is the single greatest threat to India's $5 Trillion ambition.
                                                     <CircleMarker 
                                                         key={`map-${i}`}
                                                         center={[d.lat, d.lon] as [number, number]} 
-                                                        radius={Math.max(4, Math.min(18, d.population_lakhs / 4))}
-                                                        pathOptions={{ fillColor: d.color, color: '#fff', weight: 1, fillOpacity: 0.8 }}
+                                                        radius={mapMetric === 'resilience' ? d.resilience_index * 2 : mapMetric === 'wpr' ? d.wpr / 4 : Math.max(4, Math.min(18, d.population_lakhs / 4))}
+                                                        pathOptions={{ fillColor: d.color, color: comparativeDistricts.find(p => p.district === d.district) ? '#A57C4F' : '#fff', weight: comparativeDistricts.find(p => p.district === d.district) ? 3 : 1, fillOpacity: 0.8 }}
                                                         eventHandlers={{
-                                                            click: () => setSelectedDistrict(d)
+                                                            click: () => {
+                                                                if (comparativeDistricts.find(p => p.district === d.district)) {
+                                                                    setComparativeDistricts(prev => prev.filter(p => p.district !== d.district));
+                                                                } else if (comparativeDistricts.length < 3) {
+                                                                    setComparativeDistricts(prev => [...prev, d]);
+                                                                }
+                                                                setSelectedDistrict(d);
+                                                            }
                                                         }}
                                                     >
-                                                        {/* Permanent labels for high-impact clusters/hubs */}
-                                                        { (d.is_urban_hub || d.population_lakhs > 100) && (
-                                                            /* @ts-ignore */
-                                                            <Tooltip permanent direction="top" opacity={0.6} className="map-label">
-                                                                <span className="text-[7px] font-black uppercase text-navy/60 pointer-events-none">{d.district}</span>
-                                                            </Tooltip>
-                                                        )}
                                                         {/* @ts-ignore */}
                                                         <Tooltip sticky>
-                                                            <div className="font-mono text-[10px] p-1">
-                                                                <p className="font-bold border-b border-gray-100 mb-1 pb-1">{d.district}</p>
-                                                                <p className="flex justify-between gap-4"><span>MPI:</span> <span className="font-bold">{d.mpi_score.toFixed(3)}</span></p>
-                                                                <p className="flex justify-between gap-4"><span>WPR:</span> <span className="font-bold">{d.wpr.toFixed(1)}%</span></p>
-                                                                <p className="flex justify-between gap-4"><span>Pop:</span> <span className="font-bold text-[#2E86AB]">{d.population_lakhs.toFixed(1)}L</span></p>
+                                                            <div className="font-mono text-[10px] p-2 min-w-[140px]">
+                                                                <p className="font-bold border-b border-gray-100 mb-2 pb-1 text-navy uppercase tracking-widest">{d.district}</p>
+                                                                <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-2 leading-none">{d.sub_region || 'Standard Cluster'}</p>
+                                                                <p className="flex justify-between gap-4 mb-0.5 text-xs"><span>MPI SCORE:</span> <span className="font-bold">{d.mpi_score.toFixed(3)}</span></p>
+                                                                <p className="flex justify-between gap-4 mb-0.5 text-xs"><span>LABOR FORCE:</span> <span className="font-bold">{d.wpr.toFixed(1)}%</span></p>
+                                                                <p className="flex justify-between gap-4 text-xs"><span>RESILIENCE:</span> <span className="font-bold text-gold">{(d.resilience_index * 10).toFixed(1)}</span></p>
+                                                                <div className="mt-3 pt-2 border-t border-gray-50 text-[7px] text-slate-400 font-bold uppercase tracking-widest text-center italic">
+                                                                    Click to toggle comparison benchmarking
+                                                                </div>
                                                             </div>
                                                         </Tooltip>
                                                     </CircleMarker>
@@ -610,7 +759,8 @@ The "Middle Trap" is the single greatest threat to India's $5 Trillion ambition.
                                                         verticalAlign="top" 
                                                         align="right" 
                                                         iconType="circle" 
-                                                        wrapperStyle={{ paddingTop: 0, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }} 
+                                                        iconSize={8}
+                                                        wrapperStyle={{ paddingTop: 0, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', opacity: 0.6 }} 
                                                     />
                                                 </ScatterChart>
                                             </ResponsiveContainer>
@@ -891,15 +1041,13 @@ The "Middle Trap" is the single greatest threat to India's $5 Trillion ambition.
                                 animate={{ opacity: 1, y: 0 }}
                                 className="max-w-4xl mx-auto"
                             >
-                                <article className="bg-[#FFFFFF] p-12 lg:p-20 rounded-[32px] border border-gray-100 shadow-[0_40px_100px_-20px_rgba(0,0,0,0.05)] relative overflow-hidden text-navy">
-                                    <div className="absolute top-0 right-0 w-64 h-64 bg-gold/5 rounded-full -mr-32 -mt-32 blur-3xl pointer-events-none" />
-                                    <div className="absolute top-0 left-12 w-20 h-1 bg-gold" />
+                                <article className="bg-white p-16 lg:p-24 border border-slate-200/60 shadow-sm relative text-navy mb-20 section-page">
+                                    <div className="absolute top-0 left-0 w-full h-1 bg-navy/5" />
+                                    <div className="absolute top-0 left-0 w-24 h-1 bg-gold/40" />
                                     
-                                    <div className="markdown-body prose prose-slate max-w-none prose-headings:font-serif prose-headings:italic prose-headings:text-navy prose-p:text-slate-600 prose-p:leading-[1.8] prose-a:text-gold prose-blockquote:border-l-gold prose-blockquote:bg-gray-50 prose-blockquote:italic prose-blockquote:p-8 prose-blockquote:rounded-r-3xl mt-8">
+                                    <div className="markdown-body prose prose-slate max-w-none prose-headings:font-serif prose-headings:font-normal prose-headings:text-navy prose-h1:text-4xl prose-h1:mb-2 prose-h2:text-lg prose-h2:text-slate-400 prose-h2:mt-0 prose-h2:mb-16 prose-h2:italic prose-h3:text-xl prose-h3:mt-12 prose-h3:mb-6 prose-h3:font-bold prose-h3:uppercase prose-h3:tracking-widest prose-p:text-slate-600 prose-p:leading-relaxed prose-p:text-lg prose-hr:border-slate-100 mt-8">
                                         <Markdown>{researchNote}</Markdown>
                                     </div>
-
-                                    {/* Footer removed per user request */}
                                 </article>
                             </motion.div>
                         )}
@@ -960,49 +1108,67 @@ function ScenarioModeler({ onAdd }: { onAdd: (d: District) => void }) {
         population: ''
     });
     const [errors, setErrors] = useState<Record<string, string>>({});
+    const [touched, setTouched] = useState<Record<string, boolean>>({});
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [shake, setShake] = useState(false);
 
     const states = [
         'Bihar', 'Uttar Pradesh', 'Maharashtra', 'Kerala', 'Karnataka', 
         'Tamil Nadu', 'Gujarat', 'Madhya Pradesh', 'Rajasthan', 'West Bengal'
     ];
 
+    const validateField = (name: string, value: string) => {
+        switch (name) {
+            case 'district':
+                if (!value) return 'District identification required';
+                if (value.length < 3) return 'Nomenclature length insufficient (min 3)';
+                if (value.length > 50) return 'Nomenclature exceeds limit (max 50)';
+                return '';
+            case 'state':
+                return value ? '' : 'Geographical context mandatory';
+            case 'mpi':
+                const m = parseFloat(value);
+                if (isNaN(m)) return 'Numeric coefficient required';
+                if (m < 0 || m > 0.7) return 'Threshold range: 0.000 - 0.700';
+                return '';
+            case 'wpr':
+                const w = parseFloat(value);
+                if (isNaN(w)) return 'Velocity index required';
+                if (w < 0 || w > 100) return 'Percentage boundary: 0 - 100';
+                return '';
+            case 'population':
+                const p = parseFloat(value);
+                if (isNaN(p)) return 'Demographic scale required';
+                if (p <= 0 || p > 2000) return 'Scale range: 0.1 - 2000 Lakhs';
+                return '';
+            default:
+                return '';
+        }
+    };
+
     const validate = () => {
         const newErrors: Record<string, string> = {};
+        Object.keys(formData).forEach(key => {
+            const error = validateField(key, (formData as any)[key]);
+            if (error) newErrors[key] = error;
+        });
         
-        if (!formData.district || formData.district.length < 3) {
-            newErrors.district = 'District name must be at least 3 characters';
-        }
-        
-        if (!formData.state) {
-            newErrors.state = 'Please select a state';
-        }
-        
-        const mpi = parseFloat(formData.mpi);
-        if (isNaN(mpi) || mpi < 0 || mpi > 0.7) {
-            newErrors.mpi = 'MPI Score must be between 0.0 and 0.7';
-        }
-        
-        const wpr = parseFloat(formData.wpr);
-        if (isNaN(wpr) || wpr < 0 || wpr > 100) {
-            newErrors.wpr = 'WPR must be between 0 and 100%';
-        }
-        
-        const pop = parseFloat(formData.population);
-        if (isNaN(pop) || pop <= 0 || pop > 2000) {
-            newErrors.population = 'Population must be between 0.1 and 2000 Lakhs';
-        }
-
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
     };
 
+    const handleInputChange = (name: string, value: string) => {
+        setFormData(prev => ({ ...prev, [name]: value }));
+        setTouched(prev => ({ ...prev, [name]: true }));
+        const error = validateField(name, value);
+        setErrors(prev => ({ ...prev, [name]: error }));
+    };
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (validate()) {
+        const isValid = validate();
+        if (isValid) {
             setIsSubmitting(true);
-            
-            // Artificial delay for professional feel
             setTimeout(() => {
                 const mpi = parseFloat(formData.mpi);
                 const wpr = parseFloat(formData.wpr);
@@ -1019,23 +1185,32 @@ function ScenarioModeler({ onAdd }: { onAdd: (d: District) => void }) {
                     resilience_index: Math.min(1, Math.max(0, res)),
                     lat: 20 + Math.random() * 10,
                     lon: 75 + Math.random() * 10,
-                    percentile_rank: 0.5, // Will be re-calculated if merged in App.tsx
-                    category: 'Missing Middle', // Default, logic usually re-calculates
-                    color: '#A57C4F'
+                    percentile_rank: 0.5,
+                    category: mpi < 0.15 ? 'Prosperous' : mpi < 0.3 ? 'Missing Middle' : 'Poor',
+                    color: mpi < 0.15 ? '#2E86AB' : mpi < 0.3 ? '#A57C4F' : '#E63946'
                 };
                 
                 onAdd(newDistrict);
                 setIsSubmitting(false);
             }, 800);
+        } else {
+            setShake(true);
+            setTimeout(() => setShake(false), 500);
         }
     };
 
-    const inputClasses = (field: string) => `
-        w-full bg-navy/[0.02] border border-navy/[0.03] rounded-2xl px-5 py-4 
-        text-sm font-black text-navy focus:outline-none focus:ring-4 focus:ring-gold/5 
-        focus:bg-white focus:border-gold transition-all duration-500
-        ${errors[field] ? 'border-red-200 bg-red-50/30' : 'hover:border-navy/10'}
-    `;
+    const inputClasses = (field: string) => {
+        const isError = errors[field];
+        const isTouched = touched[field];
+        const isValid = isTouched && !isError;
+
+        return `
+            w-full bg-navy/[0.02] border rounded-2xl px-5 py-4 
+            text-sm font-black text-navy focus:outline-none focus:ring-4 focus:ring-gold/5 
+            focus:bg-white focus:border-gold transition-all duration-500
+            ${isError ? 'border-red-500 bg-red-50/10' : isValid ? 'border-emerald-500/30 bg-emerald-50/10' : 'border-navy/[0.03] hover:border-navy/10'}
+        `;
+    };
 
     return (
         <div className="bg-surface rounded-[32px] border border-navy/[0.04] p-10 shadow-[0_40px_100px_-20px_rgba(15,23,42,0.05)] relative overflow-hidden">
@@ -1055,21 +1230,26 @@ function ScenarioModeler({ onAdd }: { onAdd: (d: District) => void }) {
 
             <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-10">
                 <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest px-1">District Name</label>
+                    <div className="flex justify-between items-center px-1">
+                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">District Name</label>
+                        <span className={`text-[8px] font-bold uppercase transition-colors ${formData.district.length > 50 ? 'text-red-500' : 'text-slate-300'}`}>
+                            {formData.district.length}/50
+                        </span>
+                    </div>
                     <input 
                         type="text" 
                         placeholder="e.g., Patna North Cluster" 
                         className={inputClasses('district')}
                         value={formData.district}
-                        onChange={e => setFormData({...formData, district: e.target.value})}
+                        onChange={e => handleInputChange('district', e.target.value)}
                     />
                     <AnimatePresence>
                         {errors.district && (
                             <motion.p 
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: 'auto' }}
-                                exit={{ opacity: 0, height: 0 }}
-                                className="text-[10px] font-bold text-red-500 px-1"
+                                initial={{ opacity: 0, x: -10 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                exit={{ opacity: 0, x: -10 }}
+                                className="text-[10px] font-bold text-red-500 px-1 italic"
                             >
                                 {errors.district}
                             </motion.p>
@@ -1082,12 +1262,12 @@ function ScenarioModeler({ onAdd }: { onAdd: (d: District) => void }) {
                     <select 
                         className={inputClasses('state')}
                         value={formData.state}
-                        onChange={e => setFormData({...formData, state: e.target.value})}
+                        onChange={e => handleInputChange('state', e.target.value)}
                     >
                         <option value="">Select State...</option>
                         {states.map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
-                    {errors.state && <p className="text-[10px] font-bold text-red-500 px-1">{errors.state}</p>}
+                    {errors.state && <p className="text-[10px] font-bold text-red-500 px-1 italic">{errors.state}</p>}
                 </div>
 
                 <div className="space-y-2">
@@ -1098,39 +1278,41 @@ function ScenarioModeler({ onAdd }: { onAdd: (d: District) => void }) {
                         placeholder="0.250" 
                         className={inputClasses('mpi')}
                         value={formData.mpi}
-                        onChange={e => setFormData({...formData, mpi: e.target.value})}
+                        onChange={e => handleInputChange('mpi', e.target.value)}
                     />
-                    {errors.mpi && <p className="text-[10px] font-bold text-red-500 px-1">{errors.mpi}</p>}
+                    {errors.mpi && <p className="text-[10px] font-bold text-red-500 px-1 italic">{errors.mpi}</p>}
                 </div>
 
                 <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest px-1">WPR % (Labor Force)</label>
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest px-1">WPR % (Labor Force Participation)</label>
                     <input 
                         type="number" 
                         step="0.1"
                         placeholder="45.5" 
                         className={inputClasses('wpr')}
                         value={formData.wpr}
-                        onChange={e => setFormData({...formData, wpr: e.target.value})}
+                        onChange={e => handleInputChange('wpr', e.target.value)}
                     />
-                    {errors.wpr && <p className="text-[10px] font-bold text-red-500 px-1">{errors.wpr}</p>}
+                    {errors.wpr && <p className="text-[10px] font-bold text-red-500 px-1 italic">{errors.wpr}</p>}
                 </div>
 
                 <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest px-1">Population (Lakhs)</label>
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest px-1">Demographic Scale (Lakhs)</label>
                     <input 
                         type="number" 
                         step="0.1"
                         placeholder="25.0" 
                         className={inputClasses('population')}
                         value={formData.population}
-                        onChange={e => setFormData({...formData, population: e.target.value})}
+                        onChange={e => handleInputChange('population', e.target.value)}
                     />
-                    {errors.population && <p className="text-[10px] font-bold text-red-500 px-1">{errors.population}</p>}
+                    {errors.population && <p className="text-[10px] font-bold text-red-500 px-1 italic">{errors.population}</p>}
                 </div>
 
                 <div className="md:col-span-2 pt-6">
-                    <button 
+                    <motion.button 
+                        animate={shake ? { x: [-10, 10, -10, 10, 0] } : {}}
+                        transition={{ duration: 0.4 }}
                         type="submit"
                         disabled={isSubmitting}
                         className={`w-full py-4 rounded-2xl bg-navy text-white font-black uppercase tracking-[0.2em] text-sm shadow-xl shadow-navy/20 hover:bg-gold transition-all duration-500 flex items-center justify-center gap-3 ${isSubmitting ? 'opacity-70 cursor-wait' : 'hover:-translate-y-1'}`}
@@ -1146,7 +1328,7 @@ function ScenarioModeler({ onAdd }: { onAdd: (d: District) => void }) {
                                 Merge into Prediction Model
                             </>
                         )}
-                    </button>
+                    </motion.button>
                     <p className="text-center text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-6">
                         System automatically performs outlier detection and variance normalization.
                     </p>
@@ -1156,39 +1338,85 @@ function ScenarioModeler({ onAdd }: { onAdd: (d: District) => void }) {
     );
 }
 
-function StatCard({ label, value, subValue, icon, color = 'text-navy', delay = 0 }: { label: string, value: string | number, subValue: string, icon: React.ReactNode, color?: string, delay?: number }) {
+function MetricRow({ label, value, pct, color = 'bg-blue-500' }: { label: string, value: string | number, pct: number, color?: string }) {
+    return (
+        <div className="space-y-2">
+            <div className="flex justify-between items-end">
+                <span className="text-[9px] font-black uppercase text-white/30 tracking-widest">{label}</span>
+                <span className="text-xs font-mono font-bold text-white leading-none">{value}</span>
+            </div>
+            <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                <motion.div 
+                    initial={{ width: 0 }}
+                    animate={{ width: `${pct}%` }}
+                    transition={{ duration: 1, ease: "easeOut" }}
+                    className={`h-full ${color}`}
+                />
+            </div>
+        </div>
+    );
+}
+
+function StatCard({ label, value, subValue, icon, color = 'text-navy', delay = 0, onClick, active }: { 
+    label: string, 
+    value: string | number, 
+    subValue: string, 
+    icon: React.ReactNode, 
+    color?: string, 
+    delay?: number,
+    onClick?: () => void,
+    active?: boolean
+}) {
     return (
         <motion.div 
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
+            whileHover={{ y: -5, scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
             viewport={{ once: true }}
             transition={{ delay, duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-            className="bg-surface p-8 rounded-3xl border border-navy/[0.05] shadow-[0_10px_40px_-15px_rgba(0,0,0,0.02)] hover:shadow-[0_20px_50px_-15px_rgba(0,0,0,0.06)] transition-all duration-500 group relative overflow-hidden"
+            onClick={onClick}
+            className={`cursor-pointer p-8 rounded-3xl border transition-all duration-500 group relative overflow-hidden ${
+                active 
+                ? 'bg-navy text-white border-navy shadow-[0_30px_60px_-15px_rgba(15,23,42,0.3)]' 
+                : 'bg-surface border-navy/[0.05] shadow-[0_10px_40px_-15px_rgba(0,0,0,0.02)] hover:shadow-[0_20px_50px_-15px_rgba(0,0,0,0.06)]'
+            }`}
         >
-            <div className="flex items-start justify-between mb-8">
-                <div className={`w-12 h-12 rounded-xl bg-navy/[0.03] flex items-center justify-center text-navy/30 group-hover:text-gold group-hover:bg-navy/5 transition-all duration-500`}>
+            {/* Subtle Active Glow */}
+            {active && (
+                <div className="absolute inset-0 bg-gradient-to-br from-gold/10 to-transparent pointer-events-none" />
+            )}
+
+            <div className="flex items-start justify-between mb-8 relative z-10">
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-500 ${
+                    active ? 'bg-white/10 text-gold' : 'bg-navy/[0.03] text-navy/30 group-hover:text-gold group-hover:bg-navy/5'
+                }`}>
                     {icon}
                 </div>
                 <div className="text-right">
-                    <p className="text-[9px] uppercase tracking-[0.3em] font-black text-navy/30 mb-2">{label}</p>
-                    <span className={`text-4xl font-display font-black tracking-tighter ${color}`}>{value}</span>
+                    <p className={`text-[9px] uppercase tracking-[0.3em] font-black mb-2 ${active ? 'text-white/40' : 'text-navy/30'}`}>{label}</p>
+                    <span className={`text-4xl font-display font-black tracking-tighter ${active ? 'text-white' : color}`}>{value}</span>
                 </div>
             </div>
-            <div className="w-full h-px bg-navy/[0.05] mb-5 overflow-hidden">
+            
+            <div className={`w-full h-px mb-5 overflow-hidden relative z-10 ${active ? 'bg-white/10' : 'bg-navy/[0.05]'}`}>
                 <motion.div 
                     initial={{ scaleX: 0 }}
                     whileInView={{ scaleX: 1 }}
                     viewport={{ once: true }}
-                    className="h-full bg-gold origin-left"
+                    className={`h-full origin-left ${active ? 'bg-gold' : 'bg-gold'}`}
                     transition={{ duration: 1, delay: delay + 0.3 }}
                 />
             </div>
-            <p className="text-[9px] text-navy/40 flex items-center justify-between font-bold uppercase tracking-widest">
+
+            <p className={`text-[9px] flex items-center justify-between font-bold uppercase tracking-widest relative z-10 ${active ? 'text-white/40' : 'text-navy/40'}`}>
                 <span className="flex items-center gap-2">
-                    <ArrowUpRight size={12} className="text-gold/60" />
+                    <ArrowUpRight size={12} className={active ? 'text-gold' : 'text-gold/60'} />
                     {subValue}
                 </span>
-                <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-500 font-serif italic normal-case text-gold/80">View Analysis</span>
+                <span className={`transition-opacity duration-500 font-serif italic normal-case ${active ? 'opacity-100 text-gold' : 'opacity-0 group-hover:opacity-100 text-gold/80'}`}>
+                    {active ? 'Filter Active' : 'Filter Insight'}
+                </span>
             </p>
         </motion.div>
     );

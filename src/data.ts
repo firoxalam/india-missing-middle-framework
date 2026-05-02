@@ -123,24 +123,48 @@ const STATE_QUOTAS: Record<string, number> = {
 };
 
 // Sub-regional micro-biases to create intra-state inequality clusters
-const SUB_REGION_DYNAMICS: Record<string, { name: string; bias_adj: number }[]> = {
+const SUB_REGION_DYNAMICS: Record<string, { name: string; bias_adj: number; wpr_adj: number; type: 'Industrial' | 'Agricultural' | 'Service' | 'Mining' | 'Mixed' }[]> = {
   'Uttar Pradesh': [
-    { name: 'Western UP / NCR', bias_adj: -0.12 },
-    { name: 'Central / Awadh', bias_adj: 0.02 },
-    { name: 'Eastern / Purvanchal', bias_adj: 0.15 },
-    { name: 'Bundelkhand', bias_adj: 0.18 }
+    { name: 'Western UP / NCR', bias_adj: -0.14, wpr_adj: 8, type: 'Industrial' },
+    { name: 'Central / Awadh', bias_adj: 0.02, wpr_adj: 2, type: 'Mixed' },
+    { name: 'Eastern / Purvanchal', bias_adj: 0.16, wpr_adj: -5, type: 'Agricultural' },
+    { name: 'Bundelkhand', bias_adj: 0.20, wpr_adj: -2, type: 'Mining' }
   ],
   'Bihar': [
-    { name: 'Magadh / Industrial', bias_adj: -0.05 },
-    { name: 'Central / Capital', bias_adj: -0.08 },
-    { name: 'Seemanchal / Far East', bias_adj: 0.14 },
-    { name: 'Mithila / North', bias_adj: 0.08 }
+    { name: 'Magadh / South', bias_adj: -0.05, wpr_adj: -2, type: 'Agricultural' },
+    { name: 'Central / Capital', bias_adj: -0.10, wpr_adj: 10, type: 'Service' },
+    { name: 'Seemanchal / Far East', bias_adj: 0.16, wpr_adj: -6, type: 'Agricultural' },
+    { name: 'Mithila / North', bias_adj: 0.08, wpr_adj: -4, type: 'Agricultural' }
   ],
   'Maharashtra': [
-    { name: 'Konkan / Mumbai', bias_adj: -0.15 },
-    { name: 'Western / Sugarcane Belt', bias_adj: -0.05 },
-    { name: 'Marathwada', bias_adj: 0.12 },
-    { name: 'Vidarbha', bias_adj: 0.10 }
+    { name: 'Konkan / Mumbai', bias_adj: -0.18, wpr_adj: 12, type: 'Service' },
+    { name: 'Western / Sugarcane Belt', bias_adj: -0.06, wpr_adj: 5, type: 'Industrial' },
+    { name: 'Marathwada', bias_adj: 0.14, wpr_adj: -3, type: 'Agricultural' },
+    { name: 'Vidarbha', bias_adj: 0.12, wpr_adj: -1, type: 'Mining' }
+  ],
+  'West Bengal': [
+    { name: 'Kolkata Metropolitan', bias_adj: -0.15, wpr_adj: 10, type: 'Service' },
+    { name: 'Industrial Belt', bias_adj: -0.05, wpr_adj: 6, type: 'Industrial' },
+    { name: 'North Bengal / Hills', bias_adj: 0.08, wpr_adj: -2, type: 'Mixed' },
+    { name: 'Rarh Region', bias_adj: 0.12, wpr_adj: -4, type: 'Agricultural' }
+  ],
+  'Madhya Pradesh': [
+    { name: 'Malwa / Indore', bias_adj: -0.10, wpr_adj: 7, type: 'Industrial' },
+    { name: 'Bhopal Region', bias_adj: -0.08, wpr_adj: 5, type: 'Service' },
+    { name: 'Mahakoshal / Jabalpur', bias_adj: 0.05, wpr_adj: 1, type: 'Mixed' },
+    { name: 'Baghelkhand / Tribal', bias_adj: 0.18, wpr_adj: -3, type: 'Mining' }
+  ],
+  'Tamil Nadu': [
+    { name: 'Chennai / North', bias_adj: -0.16, wpr_adj: 12, type: 'Industrial' },
+    { name: 'Kongu / West', bias_adj: -0.12, wpr_adj: 15, type: 'Industrial' },
+    { name: 'Cauvery Delta', bias_adj: 0.04, wpr_adj: 2, type: 'Agricultural' },
+    { name: 'Deep South', bias_adj: 0.08, wpr_adj: -2, type: 'Mixed' }
+  ],
+  'Gujarat': [
+    { name: 'Ahmedabad-Baroda Axis', bias_adj: -0.18, wpr_adj: 14, type: 'Industrial' },
+    { name: 'Saurashtra Coast', bias_adj: -0.05, wpr_adj: 8, type: 'Service' },
+    { name: 'North / Arid', bias_adj: 0.10, wpr_adj: -2, type: 'Agricultural' },
+    { name: 'Kutch', bias_adj: 0.02, wpr_adj: 4, type: 'Mining' }
   ]
 };
 
@@ -156,33 +180,45 @@ export function simulateData(): District[] {
     const stateDynamics = SUB_REGION_DYNAMICS[stateName];
     
     for (let i = 0; i < quota; i++) {
-        if (currentDistCount >= 800) break;
+        if (currentDistCount >= 850) break;
 
         // 1. Identify Sub-Region and Hubs
         const isHub = i === 0; // First listed district is usually the hub/capital
-        const subRegion = stateDynamics ? stateDynamics[i % stateDynamics.length] : null;
-        const dynamicBias = (subRegion?.bias_adj || 0) + (isHub ? -0.15 : 0);
+        const subRegionIdx = i % (stateDynamics?.length || 4);
+        const subRegion = stateDynamics ? stateDynamics[subRegionIdx] : null;
+        
+        const dynamicBias = (subRegion?.bias_adj || 0) + (isHub ? -0.18 : 0);
+        const dynamicWprAdj = (subRegion?.wpr_adj || 0) + (isHub ? 10 : 0);
         
         // 2. MPI: Deprivation (Adjusted for hubs and sub-regions)
-        const alpha = isHub ? 1.5 : 2.5;
-        const beta = isHub ? 7.0 : 4.5;
-        let mpi = randomBeta(alpha, beta, random) * 0.65;
-        mpi = Math.min(0.70, Math.max(0.01, mpi + STATE_CENTROIDS[stateName].bias + dynamicBias + (random() - 0.5) * 0.05));
+        const alpha = isHub ? 1.4 : (2.4 + (subRegion?.bias_adj || 0) * 5);
+        const beta = isHub ? 7.5 : (4.4 - (subRegion?.bias_adj || 0) * 3);
+        let mpi = randomBeta(Math.max(1, alpha), Math.max(1, beta), random) * 0.62;
         
-        // 3. WPR: Labor participation (range 28-78)
-        // Hubs have higher service sector / formal participation
-        const wprNoise = (random() - 0.5) * 12;
-        const wprBase = isHub ? 68 - (mpi * 20) : 62 - (mpi * 38);
-        const wpr = Math.min(82, Math.max(22, wprBase + wprNoise));
+        // Geographical variation based on sub-region index
+        const locVariance = (subRegionIdx - 1.5) * 0.04;
+        mpi = Math.min(0.70, Math.max(0.01, mpi + STATE_CENTROIDS[stateName].bias + dynamicBias + locVariance + (random() - 0.5) * 0.06));
+        
+        // 3. WPR: Labor participation
+        // Higher MPI usually correlates with lower WPR in service/industry but higher in distress agriculture
+        const wprNoise = (random() - 0.5) * 10;
+        let wprBase = 58;
+        
+        if (subRegion?.type === 'Industrial') wprBase = 68;
+        else if (subRegion?.type === 'Service') wprBase = 62;
+        else if (subRegion?.type === 'Mining') wprBase = 55;
+        else if (subRegion?.type === 'Agricultural') wprBase = 52;
+        
+        const wpr = Math.min(85, Math.max(20, wprBase - (mpi * 25) + dynamicWprAdj + wprNoise));
 
         // 4. Resilience: Multi-factor index
-        const res = (1 - (mpi * 1.2)) * 0.55 + (wpr / 80) * 0.45 + (isHub ? 0.05 : 0);
+        const res = (1 - (mpi * 1.3)) * 0.5 + (wpr / 90) * 0.4 + (isHub ? 0.1 : 0);
 
-        const distName = realNames[i] || `${stateName} ${subRegion?.name.split(' ')[0] || 'Reg'} Cluster-${Math.floor(i/3) + 1}`;
+        const distName = realNames[i] || `${stateName} ${subRegion?.name.split(' ')[0] || 'Reg'} Node-${i + 1}`;
 
-        // 5. Geographical Spiral (Golden Angle distribution for better visual separation)
-        const phi = i * 137.5 * (Math.PI / 180);
-        const radius = Math.sqrt(i + 1) * 0.45;
+        // 5. Geographical Spiral (Slightly randomized by sub-region)
+        const phi = i * 137.5 * (Math.PI / 180) + (subRegionIdx * 0.5);
+        const radius = Math.sqrt(i + 1) * (0.4 + (random() * 0.2));
         const latOffset = Math.sin(phi) * radius;
         const lonOffset = Math.cos(phi) * radius;
 
@@ -193,10 +229,10 @@ export function simulateData(): District[] {
             is_urban_hub: isHub,
             mpi_score: mpi,
             wpr: wpr,
-            population_lakhs: isHub ? (40 + random() * 120) : (8 + random() * 45),
+            population_lakhs: isHub ? (50 + random() * 150) : (6 + random() * 40),
             resilience_index: Math.min(1, Math.max(0, res)),
-            lat: STATE_CENTROIDS[stateName].lat + latOffset + (random() - 0.5) * 0.2,
-            lon: STATE_CENTROIDS[stateName].lon + lonOffset + (random() - 0.5) * 0.2,
+            lat: STATE_CENTROIDS[stateName].lat + latOffset + (random() - 0.5) * 0.15,
+            lon: STATE_CENTROIDS[stateName].lon + lonOffset + (random() - 0.5) * 0.15,
         });
         currentDistCount++;
     }
